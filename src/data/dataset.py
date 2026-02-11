@@ -116,12 +116,17 @@ class ScalogramDataset(Dataset):
     
     def __init__(self, X: np.ndarray, y: np.ndarray = None, 
                  img_size: int = 224, wavelet: str = 'morl',
-                 scales: np.ndarray = None):
+                 scales: np.ndarray = None, cache: bool = False,
+                 cache_dir: str = None, split_name: str = 'train'):
         self.X = X
         self.y = torch.LongTensor(y) if y is not None else None
         self.img_size = img_size
         self.wavelet = wavelet
         self.scales = scales if scales is not None else np.arange(1, 65)
+        self.cache = cache
+        self.cache_dir = cache_dir
+        self.split_name = split_name
+        self._cache_dict = {}
         
         self.normalize = transforms.Compose([
             transforms.ToTensor(),
@@ -144,8 +149,16 @@ class ScalogramDataset(Dataset):
         return len(self.X)
     
     def __getitem__(self, idx: int):
-        rgb_img = self._compute_scalogram(self.X[idx])
-        img_tensor = self.normalize(rgb_img)
+        # Check in-memory cache first
+        if self.cache and idx in self._cache_dict:
+            img_tensor = self._cache_dict[idx]
+        else:
+            rgb_img = self._compute_scalogram(self.X[idx])
+            img_tensor = self.normalize(rgb_img)
+            
+            # Store in cache if enabled
+            if self.cache:
+                self._cache_dict[idx] = img_tensor
         
         if self.y is not None:
             return img_tensor, self.y[idx]

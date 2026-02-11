@@ -478,8 +478,7 @@ class DatasetBalancer:
         smote = SMOTE(
             sampling_strategy=sampling_strategy,
             random_state=42,
-            k_neighbors=min(5, min(class_counts.values()) - 1),
-            n_jobs=-1
+            k_neighbors=min(5, min(class_counts.values()) - 1)
         )
         
         X_resampled, y_resampled = smote.fit_resample(X, y)
