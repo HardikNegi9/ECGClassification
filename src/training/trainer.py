@@ -650,11 +650,10 @@ class KFoldTrainer:
             if self.use_scalograms:
                 # Use ScalogramDataset for 2D vision models
                 from src.data.dataset import ScalogramDataset
-                cache_dir = f'processed_data/scalograms/kfold_fold{fold+1}'
                 train_ds = ScalogramDataset(X_train, y_train, img_size=self.scalogram_img_size,
-                                           cache=True, cache_dir=cache_dir, split_name='train')
+                                           precompute=True, split_name='train')
                 val_ds = ScalogramDataset(X_val, y_val, img_size=self.scalogram_img_size,
-                                         cache=True, cache_dir=cache_dir, split_name='val')
+                                         precompute=True, split_name='val')
             else:
                 # Standard 1D signal datasets
                 train_ds = TensorDataset(

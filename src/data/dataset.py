@@ -117,7 +117,8 @@ class ScalogramDataset(Dataset):
     def __init__(self, X: np.ndarray, y: np.ndarray = None, 
                  img_size: int = 224, wavelet: str = 'morl',
                  scales: np.ndarray = None, cache: bool = False,
-                 cache_dir: str = None, split_name: str = 'train'):
+                 cache_dir: str = None, split_name: str = 'train',
+                 precompute: bool = True):
         self.X = X
         self.y = torch.LongTensor(y) if y is not None else None
         self.img_size = img_size
@@ -126,12 +127,31 @@ class ScalogramDataset(Dataset):
         self.cache = cache
         self.cache_dir = cache_dir
         self.split_name = split_name
-        self._cache_dict = {}
+        self._scalograms = None
         
         self.normalize = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
+        
+        # Pre-compute all scalograms for speed
+        if precompute:
+            self._precompute_scalograms()
+    
+    def _precompute_scalograms(self):
+        """Pre-compute all scalograms with progress bar."""
+        from tqdm import tqdm
+        print(f"Pre-computing {len(self.X)} scalograms ({self.split_name})...")
+        
+        scalograms = []
+        for i in tqdm(range(len(self.X)), desc=f"Scalograms ({self.split_name})", 
+                      ncols=80, leave=True):
+            rgb_img = self._compute_scalogram(self.X[i])
+            img_tensor = self.normalize(rgb_img)
+            scalograms.append(img_tensor)
+        
+        self._scalograms = scalograms
+        print(f"Pre-computed {len(scalograms)} scalograms.")
     
     def _compute_scalogram(self, signal: np.ndarray) -> np.ndarray:
         """Compute single scalogram from signal."""
@@ -149,16 +169,12 @@ class ScalogramDataset(Dataset):
         return len(self.X)
     
     def __getitem__(self, idx: int):
-        # Check in-memory cache first
-        if self.cache and idx in self._cache_dict:
-            img_tensor = self._cache_dict[idx]
+        # Use pre-computed scalograms if available
+        if self._scalograms is not None:
+            img_tensor = self._scalograms[idx]
         else:
             rgb_img = self._compute_scalogram(self.X[idx])
             img_tensor = self.normalize(rgb_img)
-            
-            # Store in cache if enabled
-            if self.cache:
-                self._cache_dict[idx] = img_tensor
         
         if self.y is not None:
             return img_tensor, self.y[idx]
