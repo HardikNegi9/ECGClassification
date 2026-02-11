@@ -6,7 +6,14 @@ Supports:
 - INCART Database (physionet)
 
 Usage:
-    python -m src.data.download --create-raw
+    # Download databases
+    python -m src.data.download --download-all
+    
+    # Create RAW datasets (unbalanced)
+    python -m src.data.download --create-raw --mode all
+    
+    # Create SMOTE-balanced datasets
+    python -m src.data.download --create-balanced --mode combined --samples-per-class 15000
 """
 
 import os
@@ -341,6 +348,145 @@ class DatasetCreator:
 
 
 # ============================================================================
+# DATASET BALANCER (SMOTE)
+# ============================================================================
+
+class DatasetBalancer:
+    """
+    Balance datasets using SMOTE oversampling.
+    
+    Creates balanced datasets from RAW datasets.
+    
+    Usage:
+        balancer = DatasetBalancer()
+        balancer.create_balanced(mode='combined', samples_per_class=15000)
+    """
+    
+    def __init__(self, verbose: bool = True):
+        self.verbose = verbose
+        self.config = DownloadConfig
+        
+    def _log(self, msg: str):
+        if self.verbose:
+            print(msg)
+    
+    def create_all_balanced(self, samples_per_class: int = 15000):
+        """Create all balanced datasets (MIT-BIH, INCART, Combined)."""
+        self._log("\n" + "="*60)
+        self._log(f"Creating SMOTE-Balanced Datasets ({samples_per_class}/class)")
+        self._log("="*60)
+        
+        for mode in ['mitbih', 'incart', 'combined']:
+            try:
+                self.create_balanced(mode, samples_per_class)
+            except FileNotFoundError as e:
+                self._log(f"Skipping {mode}: {e}")
+        
+        self._log("\n" + "="*60)
+        self._log("All balanced datasets created!")
+        self._log("="*60)
+    
+    def create_balanced(self, mode: str = 'combined', samples_per_class: int = 15000):
+        """
+        Create a SMOTE-balanced dataset.
+        
+        Args:
+            mode: 'mitbih', 'incart', or 'combined'
+            samples_per_class: Target samples per class after SMOTE
+        """
+        from imblearn.over_sampling import SMOTE
+        
+        self._log(f"\n--- Balancing {mode.upper()} ---")
+        
+        # Load raw data
+        raw_X_path = self.config.DATA_DIR / f'X_{mode}_raw.npy'
+        raw_y_path = self.config.DATA_DIR / f'y_{mode}_raw.npy'
+        
+        if not raw_X_path.exists():
+            raise FileNotFoundError(
+                f"Raw dataset not found: {raw_X_path}\n"
+                f"Run with --create-raw first"
+            )
+        
+        X = np.load(raw_X_path)
+        y = np.load(raw_y_path)
+        
+        self._log(f"Loaded: {len(y)} samples")
+        self._log(f"Original distribution: {dict(Counter(y))}")
+        
+        # Step 1: Undersample majority class to target
+        X_under, y_under = self._undersample(X, y, samples_per_class)
+        self._log(f"After undersampling: {len(y_under)} samples")
+        
+        # Step 2: SMOTE oversample minority classes
+        X_bal, y_bal = self._smote_oversample(X_under, y_under, samples_per_class)
+        self._log(f"After SMOTE: {len(y_bal)} samples")
+        self._log(f"Final distribution: {dict(Counter(y_bal))}")
+        
+        # Shuffle
+        perm = np.random.permutation(len(y_bal))
+        X_bal = X_bal[perm]
+        y_bal = y_bal[perm]
+        
+        # Save - use 'balanced_rpeak_smote' naming for combined (backward compat)
+        if mode == 'combined':
+            out_X = self.config.DATA_DIR / 'X_balanced_rpeak_smote.npy'
+            out_y = self.config.DATA_DIR / 'y_balanced_rpeak_smote.npy'
+        else:
+            out_X = self.config.DATA_DIR / f'X_{mode}_rpeak_smote.npy'
+            out_y = self.config.DATA_DIR / f'y_{mode}_rpeak_smote.npy'
+        
+        np.save(out_X, X_bal.astype(np.float32))
+        np.save(out_y, y_bal.astype(np.int64))
+        
+        self._log(f"Saved: {out_X}")
+        return X_bal, y_bal
+    
+    def _undersample(self, X: np.ndarray, y: np.ndarray, 
+                     target: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Undersample classes with more than target samples."""
+        indices = []
+        rng = np.random.default_rng(42)
+        
+        for cls in np.unique(y):
+            cls_indices = np.where(y == cls)[0]
+            n_samples = min(len(cls_indices), target)
+            selected = rng.choice(cls_indices, size=n_samples, replace=False)
+            indices.extend(selected)
+        
+        indices = np.array(indices)
+        rng.shuffle(indices)
+        return X[indices], y[indices]
+    
+    def _smote_oversample(self, X: np.ndarray, y: np.ndarray,
+                          target: int) -> Tuple[np.ndarray, np.ndarray]:
+        """SMOTE oversample minority classes to target."""
+        from imblearn.over_sampling import SMOTE
+        
+        # Build sampling strategy
+        class_counts = Counter(y)
+        sampling_strategy = {}
+        
+        for cls, count in class_counts.items():
+            if count < target:
+                sampling_strategy[cls] = target
+        
+        if not sampling_strategy:
+            return X, y  # All classes already at target
+        
+        # Apply SMOTE
+        smote = SMOTE(
+            sampling_strategy=sampling_strategy,
+            random_state=42,
+            k_neighbors=min(5, min(class_counts.values()) - 1),
+            n_jobs=-1
+        )
+        
+        X_resampled, y_resampled = smote.fit_resample(X, y)
+        return X_resampled, y_resampled
+
+
+# ============================================================================
 # CLI
 # ============================================================================
 
@@ -354,6 +500,13 @@ def main():
                         help='Download INCART only')
     parser.add_argument('--create-raw', action='store_true',
                         help='Create RAW datasets (no SMOTE)')
+    parser.add_argument('--create-balanced', action='store_true',
+                        help='Create SMOTE-balanced datasets from RAW data')
+    parser.add_argument('--mode', type=str, default='all',
+                        choices=['all', 'mitbih', 'incart', 'combined'],
+                        help='Which dataset to create: all, mitbih, incart, or combined (default: all)')
+    parser.add_argument('--samples-per-class', type=int, default=15000,
+                        help='Target samples per class for SMOTE balancing (default: 15000)')
     parser.add_argument('--force', action='store_true',
                         help='Force re-download/recreate')
     
@@ -368,10 +521,24 @@ def main():
     
     if args.create_raw:
         creator = DatasetCreator()
-        creator.create_all_raw()
+        if args.mode == 'all':
+            creator.create_all_raw()
+        elif args.mode == 'mitbih':
+            creator.create_mitbih_raw()
+        elif args.mode == 'incart':
+            creator.create_incart_raw()
+        elif args.mode == 'combined':
+            creator.create_combined_raw()
+    
+    if args.create_balanced:
+        balancer = DatasetBalancer()
+        if args.mode == 'all':
+            balancer.create_all_balanced(samples_per_class=args.samples_per_class)
+        else:
+            balancer.create_balanced(mode=args.mode, samples_per_class=args.samples_per_class)
     
     if not any([args.download_all, args.download_mitbih, 
-                args.download_incart, args.create_raw]):
+                args.download_incart, args.create_raw, args.create_balanced]):
         parser.print_help()
 
 

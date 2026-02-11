@@ -1,6 +1,6 @@
 """Data module initialization."""
 
 from .dataset import ECGDataset, ECGDataModule
-from .download import DatasetDownloader, DatasetCreator
+from .download import DatasetDownloader, DatasetCreator, DatasetBalancer
 
-__all__ = ['ECGDataset', 'ECGDataModule', 'DatasetDownloader', 'DatasetCreator']
+__all__ = ['ECGDataset', 'ECGDataModule', 'DatasetDownloader', 'DatasetCreator', 'DatasetBalancer']
