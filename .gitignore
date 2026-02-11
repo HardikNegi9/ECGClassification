@@ -1,3 +1,7 @@
+# Data directories
+incart_data/
+mit_bih_data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
