@@ -1,0 +1,49 @@
+# Configuration for Dual Ensemble Evaluation
+# Fuses Signal Expert (InceptionTime) + Vision Expert (EfficientNet)
+
+experiment:
+  name: "dual_ensemble_eval"
+  description: "Dual Expert Ensemble: Signal + Vision fusion for ECG classification"
+  seed: 42
+  output_dir: "experiments/dual_ensemble"
+
+# Data configuration
+data:
+  raw_signals_path: "balanced_data/X_balanced_rpeak_smote.npy"
+  labels_path: "balanced_data/y_balanced_rpeak_smote.npy"
+  test_indices_path: "balanced_data/test_indices.npy"
+  num_classes: 5
+  class_names: ["N", "S", "V", "F", "Q"]
+
+# Pre-trained model paths
+models:
+  signal_expert_path: "models/signal_expert_best.pth"
+  vision_expert_path: "models/vision_expert_best.pth"
+
+# Ensemble configuration
+ensemble:
+  fusion: "weighted"  # Options: weighted, learnable, attention
+  signal_weight: 0.60
+  vision_weight: 0.40
+  freeze_experts: true
+
+# Inference settings
+inference:
+  batch_size_signal: 512
+  batch_size_vision: 128
+  num_workers: 0  # 0 for Windows compatibility with scalograms
+  device: "cuda"
+
+# Scalogram settings (for Vision Expert)
+scalogram:
+  img_size: 224
+  wavelet: "morl"
+  scales_start: 1
+  scales_end: 65
+
+# Output options
+output:
+  save_predictions: true
+  save_probabilities: true
+  save_confusion_matrix: true
+  plot_results: true

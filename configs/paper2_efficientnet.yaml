@@ -1,0 +1,57 @@
+# Paper 2: EfficientNet + Scalogram for ECG Classification
+# ========================================================
+# 2D Vision approach using CWT scalograms with attention
+
+name: paper2_efficientnet
+seed: 42
+device: auto
+
+# Data Configuration
+data:
+  mode: combined
+  balancing_method: smote  # smote or adasyn
+  samples_per_class: null  # Samples per class (e.g., 10000 = 50k total, null = use all)
+  test_size: 0.20
+  val_size: 0.15
+  batch_size: 256  # Good for B4 on 45GB
+  num_workers: 0  # Use 0 due to pywt/cv2 multiprocessing issues
+  seed: 42
+
+# Model Configuration
+model:
+  name: efficientnet_scalogram
+  variant: b4  # b4 for B200 45GB (better accuracy, more params)
+  num_classes: 5
+  dropout: 0.4  # Slightly more dropout for larger model
+  use_compile: false  # Don't compile (CWT layer not compatible)
+  
+  # EfficientNet-specific
+  pretrained: true  # Use ImageNet weights
+  img_size: 224  # Keep 224 for faster training
+  cbam_reduction: 16
+
+# Training Configuration
+training:
+  epochs: 100
+  patience: 8  # Epochs to wait after all LR reductions
+  lr_patience: 4  # Epochs to wait before reducing LR
+  warmup_epochs: 5
+  lr: 0.0005  # Lower LR for pretrained model
+  lr_reduce_factor: 0.5  # Reduce LR by this factor
+  min_lr: 1.0e-7  # Minimum learning rate
+  max_lr_reductions: 3  # Max LR reductions before stopping
+  weight_decay: 0.0001
+  use_amp: true
+  use_class_weights: true
+  gradient_clip: 1.0
+
+# K-Fold Configuration
+kfold:
+  enabled: false
+  n_splits: 10
+  apply_smote_per_fold: true
+
+# Paths
+checkpoint_dir: checkpoints/paper2_efficientnet
+experiment_dir: experiments/paper2_efficientnet
+log_dir: logs

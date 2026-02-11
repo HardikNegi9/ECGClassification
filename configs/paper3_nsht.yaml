@@ -1,0 +1,56 @@
+# Paper 3: NSHT Dual-Evolution Hybrid Model
+# =========================================
+# Neural Spectral-Hybrid Transformer with learnable wavelets
+
+name: paper3_nsht
+seed: 42
+device: auto
+
+# Data Configuration
+data:
+  mode: combined
+  balancing_method: smote  # smote or adasyn
+  samples_per_class: null  # null = use all, or integer for per-class limit
+  test_size: 0.20
+  val_size: 0.15
+  batch_size: 1024  # Balanced for hybrid model
+  num_workers: 4
+  seed: 42
+
+# Model Configuration
+model:
+  name: nsht_dual_evo
+  variant: base  # tiny, base, large
+  num_classes: 5
+  dropout: 0.3
+  use_compile: true
+  
+  # NSHT-specific
+  hidden_dim: 256
+  n_scales: 32  # Learnable wavelet scales
+
+# Training Configuration
+training:
+  epochs: 120  # More epochs for complex model
+  patience: 10  # Epochs to wait after all LR reductions
+  lr_patience: 5  # Epochs to wait before reducing LR
+  warmup_epochs: 10
+  lr: 0.0008
+  lr_reduce_factor: 0.5  # Reduce LR by this factor
+  min_lr: 1.0e-7  # Minimum learning rate
+  max_lr_reductions: 4  # Max LR reductions before stopping
+  weight_decay: 0.0001
+  use_amp: true
+  use_class_weights: true
+  gradient_clip: 1.0
+
+# K-Fold Configuration
+kfold:
+  enabled: false
+  n_splits: 10
+  apply_smote_per_fold: true
+
+# Paths
+checkpoint_dir: checkpoints/paper3_nsht
+experiment_dir: experiments/paper3_nsht
+log_dir: logs

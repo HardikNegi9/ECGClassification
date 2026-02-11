@@ -1,0 +1,53 @@
+# Paper 1: InceptionTime for 1D ECG Signal Classification
+# ======================================================
+# Context-Aware InceptionTime with multi-scale temporal processing
+
+name: paper1_inceptiontime
+seed: 42
+device: auto  # auto, cuda, cuda:0, cpu
+
+# Data Configuration
+data:
+  mode: combined  # combined, mitbih, incart, cross_mit_incart, cross_incart_mit
+  balancing_method: smote  # smote or adasyn
+  samples_per_class: null  # null = use all, or integer for per-class limit
+  test_size: 0.20
+  val_size: 0.15
+  batch_size: 2048  # Larger batch for 1D signals
+  num_workers: 4
+  seed: 42
+
+# Model Configuration
+model:
+  name: inception_time
+  variant: base  # tiny, base, large
+  num_classes: 5
+  dropout: 0.3
+  use_compile: true  # torch.compile() for speedup
+
+# Training Configuration
+training:
+  epochs: 100
+  patience: 10  # Epochs to wait after all LR reductions
+  lr_patience: 5  # Epochs to wait before reducing LR
+  warmup_epochs: 5
+  lr: 0.001
+  lr_reduce_factor: 0.5  # Reduce LR by this factor
+  min_lr: 1.0e-7  # Minimum learning rate
+  max_lr_reductions: 3  # Max LR reductions before stopping
+  weight_decay: 0.0001
+  use_amp: true  # Mixed precision
+  use_class_weights: true
+  gradient_clip: 1.0
+
+# K-Fold Configuration (for final paper results)
+kfold:
+  enabled: false  # Set to true for paper experiments
+  n_splits: 10
+  apply_smote_per_fold: true
+  smote_target: null  # Override data.smote_target for k-fold (null = use data setting)
+
+# Paths
+checkpoint_dir: checkpoints/paper1_inceptiontime
+experiment_dir: experiments/paper1_inceptiontime
+log_dir: logs
