@@ -66,6 +66,8 @@ def parse_args():
                        help='Data mode (combined, mitbih, incart)')
     parser.add_argument('--data.batch_size', type=int, default=None, dest='data_batch_size',
                        help='Batch size')
+    parser.add_argument('--data.samples_per_class', type=int, default=None, dest='data_samples_per_class',
+                       help='Samples per class (e.g., 10000 = 50k total, None = use all)')
     
     # Model
     parser.add_argument('--model.name', type=str, default=None, dest='model_name',
@@ -107,6 +109,8 @@ def apply_overrides(config: ExperimentConfig, args):
         config.data.mode = args.data_mode
     if args.data_batch_size:
         config.data.batch_size = args.data_batch_size
+    if args.data_samples_per_class:
+        config.data.samples_per_class = args.data_samples_per_class
     
     if args.model_name:
         config.model.name = args.model_name
@@ -165,6 +169,14 @@ def main():
     print(f"\n{'='*70}")
     print("LOADING DATA")
     print(f"{'='*70}")
+    
+    # Debug: Print actual config values
+    print(f"Config values:")
+    print(f"  mode: {config.data.mode}")
+    print(f"  batch_size: {config.data.batch_size}")
+    print(f"  num_workers: {config.data.num_workers}")
+    print(f"  samples_per_class: {getattr(config.data, 'samples_per_class', None)}")
+    print(f"  model: {config.model.name} ({config.model.variant})")
     
     data_module = ECGDataModule(
         mode=config.data.mode,

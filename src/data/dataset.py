@@ -107,26 +107,55 @@ class ECGDataset(Dataset):
         return x, self.y[idx]
 
 
+def _compute_scalogram_worker(args):
+    """Worker function for parallel scalogram computation (returns numpy, not tensor)."""
+    signal, scales, wavelet, img_size = args
+    coeffs, _ = pywt.cwt(signal, scales, wavelet)
+    scalogram = np.abs(coeffs)
+    
+    resized = cv2.resize(scalogram, (img_size, img_size), 
+                        interpolation=cv2.INTER_LINEAR)
+    
+    resized = (resized - resized.min()) / (resized.max() - resized.min() + 1e-8)
+    # Return as numpy CHW (not tensor - avoids pickling issues)
+    rgb_chw = np.stack((resized,) * 3, axis=0).astype(np.float32)
+    # Apply ImageNet normalization
+    mean = np.array([0.485, 0.456, 0.406]).reshape(3, 1, 1)
+    std = np.array([0.229, 0.224, 0.225]).reshape(3, 1, 1)
+    normalized = (rgb_chw - mean) / std
+    return normalized.astype(np.float32)
+
+
 class ScalogramDataset(Dataset):
     """
     Dataset that converts 1D ECG signals to 2D scalograms using CWT.
     
     Used for EfficientNet/Vision models (Paper 2).
+    
+    Optimizations:
+    - Parallel processing with multiprocessing Pool
+    - Normalization inside worker (no sequential post-processing)
+    - Scalograms stored as single stacked tensor (avoids shared memory issues)
+    
+    Note: When using precompute=True, set num_workers=0 in DataLoader
+          since data is already in memory (workers provide no benefit).
     """
     
     def __init__(self, X: np.ndarray, y: np.ndarray = None, 
                  img_size: int = 224, wavelet: str = 'morl',
                  scales: np.ndarray = None, cache: bool = False,
                  cache_dir: str = None, split_name: str = 'train',
-                 precompute: bool = True):
+                 precompute: bool = True, n_jobs: int = -1):
         self.X = X
         self.y = torch.LongTensor(y) if y is not None else None
         self.img_size = img_size
         self.wavelet = wavelet
+        # Keep 64 scales for accuracy
         self.scales = scales if scales is not None else np.arange(1, 65)
         self.cache = cache
         self.cache_dir = cache_dir
         self.split_name = split_name
+        self.n_jobs = n_jobs
         self._scalograms = None
         
         self.normalize = transforms.Compose([
@@ -139,19 +168,50 @@ class ScalogramDataset(Dataset):
             self._precompute_scalograms()
     
     def _precompute_scalograms(self):
-        """Pre-compute all scalograms with progress bar."""
+        """Pre-compute all scalograms using joblib (proven to work).
+        
+        Stores as a single stacked tensor to avoid shared memory issues.
+        """
         from tqdm import tqdm
-        print(f"Pre-computing {len(self.X)} scalograms ({self.split_name})...")
+        from joblib import Parallel, delayed
+        import multiprocessing as mp
         
-        scalograms = []
-        for i in tqdm(range(len(self.X)), desc=f"Scalograms ({self.split_name})", 
-                      ncols=80, leave=True):
-            rgb_img = self._compute_scalogram(self.X[i])
-            img_tensor = self.normalize(rgb_img)
-            scalograms.append(img_tensor)
+        n_samples = len(self.X)
+        n_cores = mp.cpu_count() if self.n_jobs == -1 else self.n_jobs
         
-        self._scalograms = scalograms
-        print(f"Pre-computed {len(scalograms)} scalograms.")
+        print(f"Pre-computing {n_samples} scalograms ({self.split_name}) using {n_cores} workers...")
+        
+        # Prepare arguments
+        args_list = [
+            (self.X[i], self.scales, self.wavelet, self.img_size)
+            for i in range(n_samples)
+        ]
+        
+        try:
+            # Use joblib with loky backend (proven to work at 145 it/s)
+            scalogram_arrays = Parallel(n_jobs=self.n_jobs, backend='loky')(
+                delayed(_compute_scalogram_worker)(args) 
+                for args in tqdm(args_list, desc=f"Scalograms ({self.split_name})", 
+                               ncols=80, leave=True)
+            )
+            
+            # Single conversion: stack numpy arrays then convert to tensor
+            print(f"Converting to tensor...")
+            stacked = np.stack(scalogram_arrays)  # (N, 3, H, W)
+            self._scalograms = torch.from_numpy(stacked)
+            print(f"Pre-computed {len(self._scalograms)} scalograms. Shape: {self._scalograms.shape}")
+            
+        except Exception as e:
+            # Fallback to sequential
+            print(f"Parallel processing failed ({e}), using sequential...")
+            scalogram_list = []
+            for i in tqdm(range(n_samples), desc=f"Scalograms ({self.split_name})", 
+                          ncols=80, leave=True):
+                rgb_img = self._compute_scalogram(self.X[i])
+                img_tensor = self.normalize(rgb_img)
+                scalogram_list.append(img_tensor)
+            self._scalograms = torch.stack(scalogram_list)
+            print(f"Pre-computed {len(self._scalograms)} scalograms. Shape: {self._scalograms.shape}")
     
     def _compute_scalogram(self, signal: np.ndarray) -> np.ndarray:
         """Compute single scalogram from signal."""
@@ -159,7 +219,7 @@ class ScalogramDataset(Dataset):
         scalogram = np.abs(coeffs)
         
         resized = cv2.resize(scalogram, (self.img_size, self.img_size), 
-                            interpolation=cv2.INTER_CUBIC)
+                            interpolation=cv2.INTER_LINEAR)
         
         resized = (resized - resized.min()) / (resized.max() - resized.min() + 1e-8)
         rgb_img = np.stack((resized,) * 3, axis=-1).astype(np.float32)
