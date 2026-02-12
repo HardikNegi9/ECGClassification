@@ -307,14 +307,19 @@ class Trainer:
         # History
         self.history = defaultdict(list)
     
-    def train_epoch(self) -> Tuple[float, float]:
-        """Train for one epoch."""
+    def train_epoch(self, show_progress: bool = True) -> Tuple[float, float]:
+        """Train for one epoch with optional progress bar."""
         self.model.train()
         total_loss = 0.0
         correct = 0
         total = 0
         
-        for batch_x, batch_y in self.train_loader:
+        # Wrap with tqdm for real-time progress
+        loader = self.train_loader
+        if show_progress:
+            loader = tqdm(self.train_loader, desc="Training", ncols=100, leave=False)
+        
+        for batch_x, batch_y in loader:
             batch_x = batch_x.to(self.device)
             batch_y = batch_y.to(self.device)
             
@@ -341,6 +346,13 @@ class Trainer:
             _, predicted = outputs.max(1)
             correct += predicted.eq(batch_y).sum().item()
             total += batch_x.size(0)
+            
+            # Update progress bar with current metrics
+            if show_progress and hasattr(loader, 'set_postfix'):
+                loader.set_postfix({
+                    'loss': f'{total_loss/total:.4f}',
+                    'acc': f'{100*correct/total:.2f}%'
+                })
         
         return total_loss / total, correct / total
     
@@ -431,8 +443,8 @@ class Trainer:
             else:
                 lr = self.optimizer.param_groups[0]['lr']
             
-            # Train
-            train_loss, train_acc = self.train_epoch()
+            # Train (with progress bar in verbose mode)
+            train_loss, train_acc = self.train_epoch(show_progress=verbose)
             
             # Validate
             val_loss, val_acc = self.validate()
