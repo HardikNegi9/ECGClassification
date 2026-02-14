@@ -474,11 +474,35 @@ class DatasetBalancer:
         if not sampling_strategy:
             return X, y  # All classes already at target
         
+        # Check minimum samples - SMOTE needs at least k_neighbors + 1 samples
+        min_samples = min(class_counts.values())
+        if min_samples < 2:
+            # Classes with <2 samples can't use SMOTE - duplicate them first
+            self._log(f"Warning: Some classes have <2 samples. Duplicating to enable SMOTE...")
+            X_list, y_list = [X], [y]
+            for cls, count in class_counts.items():
+                if count < 2:
+                    # Duplicate samples to get at least 2
+                    cls_mask = y == cls
+                    X_cls = X[cls_mask]
+                    y_cls = y[cls_mask]
+                    n_copies = 2 - count
+                    for _ in range(n_copies):
+                        X_list.append(X_cls)
+                        y_list.append(y_cls)
+            X = np.vstack(X_list)
+            y = np.concatenate(y_list)
+            class_counts = Counter(y)
+            min_samples = min(class_counts.values())
+        
+        # k_neighbors must be at least 1
+        k_neighbors = max(1, min(5, min_samples - 1))
+        
         # Apply SMOTE
         smote = SMOTE(
             sampling_strategy=sampling_strategy,
             random_state=42,
-            k_neighbors=min(5, min(class_counts.values()) - 1)
+            k_neighbors=k_neighbors
         )
         
         X_resampled, y_resampled = smote.fit_resample(X, y)
